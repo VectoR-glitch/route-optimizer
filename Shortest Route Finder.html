@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shortest Route Optimizer</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel2: #1e222b;
+    --border: #2a2f3a;
+    --text: #e6e8ec;
+    --muted: #9aa2b1;
+    --accent: #4f8cff;
+    --accent2: #35c78a;
+    --danger: #ff5d6c;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+  }
+  #sidebar {
+    width: 400px;
+    min-width: 400px;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  #map { flex: 1; }
+  .section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 12px; margin: 0 0 10px; line-height: 1.4; }
+  textarea {
+    width: 100%; min-height: 80px; resize: vertical;
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px; font-size: 13px; font-family: monospace;
+  }
+  .row { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  button {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    padding: 7px 12px; border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: white; font-weight: 600; }
+  button.primary:hover { filter: brightness(1.1); }
+  button.danger-outline { color: var(--danger); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  #pointList { list-style: none; margin: 10px 0 0; padding: 0; }
+  #pointList li {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; font-size: 12px;
+    cursor: grab;
+  }
+  #pointList li.dragging { opacity: 0.4; }
+  .badge {
+    width: 20px; height: 20px; border-radius: 50%; background: var(--accent);
+    color: white; display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; flex-shrink: 0;
+  }
+  .coord { flex: 1; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rm { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 2px 4px; }
+  .rm:hover { color: var(--danger); }
+  label.opt { display: flex; align-items: center; gap: 6px; font-size: 13px; margin-top: 8px; }
+  select { background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px; font-size: 13px; }
+  #status { font-size: 12px; color: var(--muted); margin-top: 8px; min-height: 16px; }
+  #status.err { color: var(--danger); }
+  #status.ok { color: var(--accent2); }
+  #results { padding: 14px 16px; display: none; }
+  #results.show { display: block; }
+  .stat-row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 13px; }
+  .stat-row .val { font-weight: 700; color: var(--accent2); }
+  table.legs { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+  table.legs th, table.legs td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+  table.legs th { color: var(--muted); font-weight: 600; }
+  a.gmaps-link {
+    display: block; margin-top: 10px; background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px; text-align: center; color: var(--accent); text-decoration: none; font-size: 13px;
+  }
+  a.gmaps-link:hover { border-color: var(--accent); }
+  .leaflet-div-icon { background: transparent; border: none; }
+  .num-marker {
+    background: var(--accent); color: white; border-radius: 50%; width: 26px; height: 26px;
+    display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700;
+    border: 2px solid white; box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  }
+  .num-marker.start { background: var(--accent2); }
+  #mapClickHint {
+    position: absolute; top: 10px; left: 420px; background: var(--accent); color: white;
+    padding: 6px 12px; border-radius: 6px; font-size: 12px; display: none; z-index: 1000;
+  }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <div class="section">
+    <h1>Shortest Route Optimizer</h1>
+    <p class="sub">Add stops, then compute the shortest road route visiting all of them (exact solver for ≤13 stops, heuristic beyond that). Distances/times come from OSRM's free public routing service (driving profile).</p>
+  </div>
+
+  <div class="section">
+    <p class="sub" style="margin-bottom:6px;"><strong>Add coordinates</strong> — one per line. Accepts <code>lat,lng</code> or a pasted Google Maps URL (e.g. containing <code>@lat,lng</code>).</p>
+    <textarea id="coordInput" placeholder="12.9716,77.5946&#10;https://www.google.com/maps/@12.935,77.614,15z&#10;13.0827,80.2707"></textarea>
+    <div class="row">
+      <button id="addTextBtn">Add from text</button>
+      <button id="pickMapBtn">Pick on map</button>
+      <button id="myLocBtn">Add my location</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <p class="sub" style="margin-bottom:6px;"><strong>Stops</strong> (drag to reorder — first stop is the route start)</p>
+    <ul id="pointList"></ul>
+    <div class="row">
+      <button id="clearBtn" class="danger-outline">Clear all</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <label class="opt"><input type="checkbox" id="roundTrip" checked> Return to start (round trip)</label>
+    <label class="opt">Optimize by:
+      <select id="metricSelect">
+        <option value="distance">Shortest distance</option>
+        <option value="duration">Fastest time</option>
+      </select>
+    </label>
+    <div class="row">
+      <button id="solveBtn" class="primary">Optimize Route</button>
+    </div>
+    <div id="status"></div>
+  </div>
+
+  <div id="results" class="section">
+    <div class="stat-row"><span>Total distance</span><span class="val" id="totalDist">-</span></div>
+    <div class="stat-row"><span>Total time</span><span class="val" id="totalTime">-</span></div>
+    <div class="stat-row"><span>Solver used</span><span id="solverUsed">-</span></div>
+    <table class="legs" id="legsTable"><thead><tr><th>#</th><th>Leg</th><th>Dist</th><th>Time</th></tr></thead><tbody></tbody></table>
+    <a href="#" id="gmapsLink" class="gmaps-link" target="_blank" rel="noopener">Open this route in Google Maps →</a>
+  </div>
+</div>
+
+<div id="map"></div>
+<div id="mapClickHint">Click the map to add a stop. Click "Pick on map" again to stop.</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const OSRM_BASE = 'https://router.project-osrm.org';
+
+let points = []; // {lat, lng}
+let markers = [];
+let routeLine = null;
+let pickMode = false;
+
+const STORAGE_KEY = 'routeOptimizerState';
+
+function saveState() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      points,
+      roundTrip: document.getElementById('roundTrip').checked,
+      metric: document.getElementById('metricSelect').value
+    }));
+  } catch (e) { /* storage unavailable (e.g. private browsing) — ignore */ }
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    if (Array.isArray(s.points)) points = s.points;
+    if (typeof s.roundTrip === 'boolean') document.getElementById('roundTrip').checked = s.roundTrip;
+    if (s.metric) document.getElementById('metricSelect').value = s.metric;
+  } catch (e) { /* corrupted/unavailable storage — start fresh */ }
+}
+
+const map = L.map('map').setView([20.5937, 78.9629], 5);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+map.on('click', (e) => {
+  if (!pickMode) return;
+  addPoint(e.latlng.lat, e.latlng.lng);
+});
+
+document.getElementById('roundTrip').addEventListener('change', saveState);
+document.getElementById('metricSelect').addEventListener('change', saveState);
+
+loadState();
+renderPoints();
+
+function setStatus(msg, cls) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = cls || '';
+}
+
+function parseCoordLine(line) {
+  line = line.trim();
+  if (!line) return null;
+  let m;
+  // @lat,lng (Google Maps URL)
+  m = line.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  // !3dlat!4dlng (Google Maps place detail)
+  m = line.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  // q=lat,lng or query=lat,lng
+  m = line.match(/[?&](?:q|query)=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  // plain "lat,lng" or "lat, lng"
+  m = line.match(/^(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)$/);
+  if (m) {
+    const lat = parseFloat(m[1]), lng = parseFloat(m[2]);
+    if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) return { lat, lng };
+  }
+  return null;
+}
+
+function addPoint(lat, lng) {
+  points.push({ lat, lng });
+  renderPoints();
+}
+
+function removePoint(idx) {
+  points.splice(idx, 1);
+  renderPoints();
+}
+
+function renderPoints() {
+  const list = document.getElementById('pointList');
+  list.innerHTML = '';
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+
+  points.forEach((p, i) => {
+    const li = document.createElement('li');
+    li.draggable = true;
+    li.dataset.idx = i;
+    li.innerHTML = `<span class="badge">${i + 1}</span><span class="coord">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}</span><button class="rm" title="Remove">✕</button>`;
+    li.querySelector('.rm').addEventListener('click', () => removePoint(i));
+
+    li.addEventListener('dragstart', () => li.classList.add('dragging'));
+    li.addEventListener('dragend', () => li.classList.remove('dragging'));
+    li.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      const dragging = list.querySelector('.dragging');
+      if (dragging && dragging !== li) {
+        const rect = li.getBoundingClientRect();
+        const after = (e.clientY - rect.top) > rect.height / 2;
+        list.insertBefore(dragging, after ? li.nextSibling : li);
+      }
+    });
+    li.addEventListener('drop', () => {
+      const newOrder = [...list.children].map(el => points[parseInt(el.dataset.idx)]);
+      points = newOrder;
+      renderPoints();
+    });
+
+    list.appendChild(li);
+
+    const icon = L.divIcon({ className: '', html: `<div class="num-marker ${i === 0 ? 'start' : ''}">${i + 1}</div>`, iconSize: [26, 26], iconAnchor: [13, 13] });
+    const marker = L.marker([p.lat, p.lng], { icon, draggable: true }).addTo(map);
+    marker.on('dragend', (e) => {
+      const ll = e.target.getLatLng();
+      points[i] = { lat: ll.lat, lng: ll.lng };
+      renderPoints();
+    });
+    markers.push(marker);
+  });
+
+  if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+  document.getElementById('results').classList.remove('show');
+
+  if (points.length) {
+    const bounds = L.latLngBounds(points.map(p => [p.lat, p.lng]));
+    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+  }
+
+  saveState();
+}
+
+document.getElementById('addTextBtn').addEventListener('click', () => {
+  const raw = document.getElementById('coordInput').value.split('\n');
+  let added = 0;
+  raw.forEach(line => {
+    const c = parseCoordLine(line);
+    if (c) { points.push(c); added++; }
+  });
+  document.getElementById('coordInput').value = '';
+  renderPoints();
+  setStatus(added ? `Added ${added} point(s).` : 'No valid coordinates found in that text.', added ? 'ok' : 'err');
+});
+
+document.getElementById('pickMapBtn').addEventListener('click', () => {
+  pickMode = !pickMode;
+  document.getElementById('mapClickHint').style.display = pickMode ? 'block' : 'none';
+  document.getElementById('pickMapBtn').style.borderColor = pickMode ? 'var(--accent)' : '';
+});
+
+document.getElementById('myLocBtn').addEventListener('click', () => {
+  if (!navigator.geolocation) { setStatus('Geolocation not supported by this browser.', 'err'); return; }
+  navigator.geolocation.getCurrentPosition(
+    (pos) => addPoint(pos.coords.latitude, pos.coords.longitude),
+    (err) => setStatus('Could not get location: ' + err.message, 'err')
+  );
+});
+
+document.getElementById('clearBtn').addEventListener('click', () => {
+  points = [];
+  renderPoints();
+  setStatus('');
+});
+
+// ---------- TSP solving ----------
+
+// Exact Held-Karp DP. Returns order (array of indices starting at 0) minimizing
+// path cost from node 0 through all nodes (optionally back to 0).
+function heldKarp(dist, n, roundTrip) {
+  const FULL = 1 << n;
+  const dp = Array.from({ length: FULL }, () => new Array(n).fill(Infinity));
+  const parent = Array.from({ length: FULL }, () => new Array(n).fill(-1));
+  dp[1][0] = 0;
+
+  for (let mask = 1; mask < FULL; mask++) {
+    if (!(mask & 1)) continue; // must contain start node
+    for (let i = 0; i < n; i++) {
+      if (!(mask & (1 << i)) || dp[mask][i] === Infinity) continue;
+      for (let j = 0; j < n; j++) {
+        if (mask & (1 << j)) continue;
+        const nmask = mask | (1 << j);
+        const cost = dp[mask][i] + dist[i][j];
+        if (cost < dp[nmask][j]) {
+          dp[nmask][j] = cost;
+          parent[nmask][j] = i;
+        }
+      }
+    }
+  }
+
+  const full = FULL - 1;
+  let bestEnd = -1, bestCost = Infinity;
+  for (let i = 1; i < n; i++) {
+    if (dp[full][i] === Infinity) continue;
+    const cost = dp[full][i] + (roundTrip ? dist[i][0] : 0);
+    if (cost < bestCost) { bestCost = cost; bestEnd = i; }
+  }
+  if (n === 1) { bestEnd = 0; bestCost = 0; }
+
+  const order = [];
+  let mask = full, cur = bestEnd;
+  while (cur !== -1) {
+    order.push(cur);
+    const p = parent[mask][cur];
+    mask ^= (1 << cur);
+    cur = p;
+  }
+  order.reverse();
+  return { order, cost: bestCost };
+}
+
+// Heuristic for larger n: nearest-neighbor construction + 2-opt improvement.
+function nearestNeighborTwoOpt(dist, n, roundTrip) {
+  const visited = new Array(n).fill(false);
+  let order = [0];
+  visited[0] = true;
+  for (let k = 1; k < n; k++) {
+    const last = order[order.length - 1];
+    let best = -1, bestD = Infinity;
+    for (let j = 0; j < n; j++) {
+      if (!visited[j] && dist[last][j] < bestD) { bestD = dist[last][j]; best = j; }
+    }
+    order.push(best);
+    visited[best] = true;
+  }
+
+  function tourCost(o) {
+    let c = 0;
+    for (let i = 0; i < o.length - 1; i++) c += dist[o[i]][o[i + 1]];
+    if (roundTrip) c += dist[o[o.length - 1]][o[0]];
+    return c;
+  }
+
+  let improved = true;
+  while (improved) {
+    improved = false;
+    for (let i = 1; i < n - 1; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const newOrder = order.slice(0, i).concat(order.slice(i, j + 1).reverse(), order.slice(j + 1));
+        if (tourCost(newOrder) < tourCost(order) - 1e-9) {
+          order = newOrder;
+          improved = true;
+        }
+      }
+    }
+  }
+  return { order, cost: tourCost(order) };
+}
+
+function formatDistance(m) {
+  return (m / 1000).toFixed(1) + ' km';
+}
+function formatDuration(s) {
+  const h = Math.floor(s / 3600);
+  const m = Math.round((s % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+async function fetchTable(pts) {
+  const coordStr = pts.map(p => `${p.lng},${p.lat}`).join(';');
+  const url = `${OSRM_BASE}/table/v1/driving/${coordStr}?annotations=distance,duration`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`OSRM table request failed (${res.status})`);
+  const data = await res.json();
+  if (data.code !== 'Ok') throw new Error('OSRM table error: ' + data.code);
+  return data;
+}
+
+async function fetchRouteGeometry(pts) {
+  const coordStr = pts.map(p => `${p.lng},${p.lat}`).join(';');
+  const url = `${OSRM_BASE}/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`OSRM route request failed (${res.status})`);
+  const data = await res.json();
+  if (data.code !== 'Ok') throw new Error('OSRM route error: ' + data.code);
+  return data.routes[0];
+}
+
+document.getElementById('solveBtn').addEventListener('click', async () => {
+  if (points.length < 2) { setStatus('Add at least 2 stops first.', 'err'); return; }
+  const solveBtn = document.getElementById('solveBtn');
+  solveBtn.disabled = true;
+  setStatus('Fetching road distances from OSRM…');
+
+  try {
+    const table = await fetchTable(points);
+    const n = points.length;
+    const metric = document.getElementById('metricSelect').value;
+    const matrix = metric === 'distance' ? table.distances : table.durations;
+
+    // guard against unreachable pairs (null in OSRM response)
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        if (matrix[i][j] == null) matrix[i][j] = 1e12;
+      }
+    }
+
+    const roundTrip = document.getElementById('roundTrip').checked;
+    setStatus('Solving optimal order…');
+
+    let result, solverName;
+    if (n <= 13) {
+      result = heldKarp(matrix, n, roundTrip);
+      solverName = 'Exact (Held-Karp)';
+    } else {
+      result = nearestNeighborTwoOpt(matrix, n, roundTrip);
+      solverName = 'Heuristic (Nearest-neighbor + 2-opt)';
+    }
+
+    const order = result.order;
+    const orderedPts = order.map(i => points[i]);
+    const routePts = roundTrip ? orderedPts.concat([orderedPts[0]]) : orderedPts;
+
+    setStatus('Fetching route geometry…');
+    const routeGeom = await fetchRouteGeometry(routePts);
+
+    if (routeLine) map.removeLayer(routeLine);
+    const latlngs = routeGeom.geometry.coordinates.map(c => [c[1], c[0]]);
+    routeLine = L.polyline(latlngs, { color: '#4f8cff', weight: 4, opacity: 0.85 }).addTo(map);
+    map.fitBounds(routeLine.getBounds(), { padding: [40, 40] });
+
+    // update markers to reflect optimized order
+    markers.forEach(m => map.removeLayer(m));
+    markers = [];
+    order.forEach((origIdx, pos) => {
+      const p = points[origIdx];
+      const icon = L.divIcon({ className: '', html: `<div class="num-marker ${pos === 0 ? 'start' : ''}">${pos + 1}</div>`, iconSize: [26, 26], iconAnchor: [13, 13] });
+      markers.push(L.marker([p.lat, p.lng], { icon }).addTo(map));
+    });
+
+    // build legs table using the distance/duration matrices (both, regardless of optimize metric)
+    const tbody = document.querySelector('#legsTable tbody');
+    tbody.innerHTML = '';
+    let totalDist = 0, totalTime = 0;
+    const legPairs = [];
+    for (let i = 0; i < order.length - 1; i++) legPairs.push([order[i], order[i + 1]]);
+    if (roundTrip) legPairs.push([order[order.length - 1], order[0]]);
+
+    legPairs.forEach(([a, b], idx) => {
+      const d = table.distances[a][b] ?? 0;
+      const t = table.durations[a][b] ?? 0;
+      totalDist += d;
+      totalTime += t;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${idx + 1}</td><td>Stop ${order.indexOf(a) + 1} → Stop ${order.indexOf(b) + 1}</td><td>${formatDistance(d)}</td><td>${formatDuration(t)}</td>`;
+      tbody.appendChild(tr);
+    });
+
+    document.getElementById('totalDist').textContent = formatDistance(totalDist);
+    document.getElementById('totalTime').textContent = formatDuration(totalTime);
+    document.getElementById('solverUsed').textContent = solverName;
+
+    const gmapsUrl = 'https://www.google.com/maps/dir/' + routePts.map(p => `${p.lat},${p.lng}`).join('/');
+    document.getElementById('gmapsLink').href = gmapsUrl;
+
+    document.getElementById('results').classList.add('show');
+    setStatus(`Done — optimized order of ${n} stops.`, 'ok');
+  } catch (err) {
+    console.error(err);
+    setStatus('Error: ' + err.message + ' (public OSRM server may be rate-limited — try again shortly, or fewer points)', 'err');
+  } finally {
+    solveBtn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
