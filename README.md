@@ -2,7 +2,7 @@
 
 A single-file, self-contained web app that takes a list of coordinates (or Google Maps links) and computes the shortest road route visiting all of them — with real road distances, an interactive map, and a one-click export to Google Maps.
 
-No install, no build step, no server. Open `Shortest Route Finder.html` in a browser and use it.
+No install and no build step. Serve `Shortest Route Finder.html` over `http://localhost` (one double-click with the included launcher) and use it.
 
 ![Shortest Route Optimizer — solved 6-stop route in Bengaluru](screenshot.png)
 
@@ -48,9 +48,13 @@ If you're offline, the page still opens but the map won't render and "Optimize R
 
 ## How to run it
 
-Double-click `Shortest Route Finder.html`. It opens in your default browser and works immediately — nothing else needed.
+Double-click `Launch Route Finder.bat` (Windows, needs [Node.js](https://nodejs.org/)). It starts a small local web server and opens the app at `http://localhost:8000`. Keep the console window open while you use the app; close it when you are done.
 
-(There is no local server, backend, or account involved. Everything runs client-side in the browser and talks directly to the free OSRM/OSM services over HTTPS.)
+Any other static server works too, for example `npx http-server . -p 8000` in this folder, then open `http://localhost:8000/Shortest%20Route%20Finder.html`.
+
+**Why not just double-click the HTML?** Opened straight from disk (`file://`), the page sends no referrer, and the OpenStreetMap tile servers can reject those requests, so the map shows "access blocked". Served over `http://localhost` the browser sends a referrer and the tiles load. This was observed in practice; the exact server-side rule was not verified.
+
+(There is still no backend or account involved. Everything runs client-side in the browser and talks directly to the free OSRM/OSM services over HTTPS.)
 
 ---
 
